@@ -16,10 +16,22 @@
 # @author Stefan Krusche, Dr. Krusche & Partner PartG
 #
 #
+import json
 import random
 import ssl
 
 import paho.mqtt.client as mqtt
+
+#
+# The MQTT topics assigned to the specific data types
+#
+INDICATOR_CREATE_TOPIC = "opencti/indicator/create"
+INDICATOR_UPDATE_TOPIC = "opencti/indicator/update"
+
+OBSERVABLE_CREATE_TOPIC = "opencti/observable/create"
+OBSERVABLE_UPDATE_TOPIC = "opencti/observable/update"
+
+MAX_RETRIES = 3
 
 
 class MqttApiHandler:
@@ -30,6 +42,7 @@ class MqttApiHandler:
         broker_port,
         client_id,
         keep_alive,
+        qos,
         username,
         password,
         ca_file,
@@ -53,25 +66,38 @@ class MqttApiHandler:
             self.client_id = client_id
 
         self.keep_alive = keep_alive
+        self.qos = qos
 
+        #
+        # User authentication
+        #
         self.username = username
         self.password = password
 
+        #
+        # TLS support
+        #
         self.ca_file = ca_file
         self.cert_file = cert_file
 
         self.key_file = key_file
         self.ssl_verify = ssl_verify
 
-
+        #
         # Flag to indicate whether an MQTT connection
         # was established or not
+        #
         self.connected = False
-
         #
         # Build MQTT client
         #
         self._build_mqtt_client()
+
+    # ***********************
+    #
+    # MQTT SPECIFIC
+    #
+    # ***********************
 
     #
     # MQTT connection callback to indicate whether
@@ -96,9 +122,15 @@ class MqttApiHandler:
         #
         if rc == 0:
             self.connected = True
-
+            """
+            rc = 1: Incorrect protocol version
+            rc = 2: Invalid client identifier
+            rc = 3: Server unavailable
+            rc = 4: Invalid credentials, requesting new one
+            """
         else:
             self.connected = False
+            self.client.disconnect()
 
             message = "Cannot connect to MQTT broker. Return code: {}".format(rc)
             self.helper.log_error(message)
@@ -122,8 +154,7 @@ class MqttApiHandler:
             matches the mid variable returned from the corresponding
             publish() call, to allow outgoing messages to be tracked.
         """
-
-        return
+        pass
 
     #
     # An internal method to publish a certain
@@ -132,6 +163,33 @@ class MqttApiHandler:
     def _publish(self, topic, message):
         if not self.connected:
             return
+
+        (rc, _skip) = self.client.publish(topic, message, qos=self.qos)
+        if rc == 0:
+            #
+            # The message was successfully published
+            #
+            pass
+        else:
+            #
+            # Retry until maximum of retries is reached
+            # or message has been published successfully
+            #
+            success = False
+            retry = 0
+
+            while (not success) and retry < MAX_RETRIES:
+                (rc, _skip) = self.client.publish(topic, message, qos=self.qos)
+                if rc == 0:
+                    success = True
+                else:
+                    retry += 1
+
+            if not success:
+                self.helper.log_error(
+                    "Cannot publish to topic `{}`: {}".format(topic, message)
+                )
+
         return
 
     #
@@ -169,13 +227,31 @@ class MqttApiHandler:
             self.client.tls_insecure_set(self.ssl_verify)
 
         self.client.connect(self.broker_url, self.broker_port, self.keep_alive)
+        """
+        The loop() function is a built in function that will read the 
+        receive and send buffers, and process any messages it finds.       
+        
+        The loop_start() starts a new thread, that calls the loop method 
+        at regular intervals. It also handles re-connects automatically. 
+        """
+        self.client.loop_start()
         return
+
+    # ***********************
+    #
+    # OPENCTI SPECIFIC
+    #
+    # ***********************
 
     def handle_create(self, data):
         data_type = data["type"]
         # Handle create event
         if data_type == "indicator":
-            # Handle indicator
+            """
+            
+            INDICATOR
+            
+            """
             self._handle_create_indicator(data)
             return
         elif data_type in [
@@ -187,7 +263,11 @@ class MqttApiHandler:
             "process",
             "x-opencti-hostname"
         ]:
-            # Handle observable
+            """
+            
+            OBSERVABLE
+            
+            """
             self._handle_create_observable(data)
             return
 
@@ -247,11 +327,12 @@ class MqttApiHandler:
         indicator = self._import_indicator(data)
         if indicator is not None:
             #
-            # Publish indicator
+            # Publish indicator: Transform into serialized
+            # JSON string and assign to defined topic
             #
-            message = indicator
-            topic = "opencti/indicator/create"
-            return
+            message = json.dumps(indicator)
+            self._publish(INDICATOR_CREATE_TOPIC, message)
+
         return
 
     def _handle_update_indicator(self, data):
@@ -261,10 +342,12 @@ class MqttApiHandler:
         indicator = self._import_indicator(data)
         if indicator is not None:
             #
-            # Publish indicator
+            # Publish indicator: Transform into serialized
+            # JSON string and assign to defined topic
             #
-            message = indicator
-            topic = "opencti/indicator/update"
+            message = json.dumps(indicator)
+            self._publish(INDICATOR_UPDATE_TOPIC, message)
+
         return
 
     def _handle_delete_indicator(self, data):
@@ -303,10 +386,12 @@ class MqttApiHandler:
         observable = self._import_observable(data)
         if observable is not None:
             #
-            # Publish indicator
+            # Publish observable: Transform into serialized
+            # JSON string and assign to defined topic
             #
-            message = observable
-            topic = "opencti/indicator/update"
+            message = json.dumps(observable)
+            self._publish(OBSERVABLE_CREATE_TOPIC, message)
+
         return
 
     def _handle_update_observable(self, data):
@@ -316,10 +401,12 @@ class MqttApiHandler:
         observable = self._import_observable(data)
         if observable is not None:
             #
-            # Publish indicator
+            # Publish observable: Transform into serialized
+            # JSON string and assign to defined topic
             #
-            message = observable
-            topic = "opencti/indicator/update"
+            message = json.dumps(observable)
+            self._publish(OBSERVABLE_UPDATE_TOPIC, message)
+
         return
 
     def _handle_delete_observable(self, data):

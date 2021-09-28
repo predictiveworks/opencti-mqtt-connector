@@ -16,6 +16,7 @@ mqtt:
   broker_port: 1883
   client_id: 'ChangeMe'
   keep_alive: 60
+  qos: 1
   username: 'ChangeMe'
   password: 'ChangeMe'
   ca_file: 'ChangeMe'

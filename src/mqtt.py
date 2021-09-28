@@ -46,6 +46,8 @@ class MqttConnector:
 
         self.client_id = get_config_variable("MQTT_CLIENT_ID", ["mqtt", "client_id"], config)
         self.keep_alive = get_config_variable("MQTT_KEEP_ALIVE", ["mqtt", "keep_alive"], config)
+
+        self.qos = get_config_variable("MQTT_QOS", ["mqtt", "qos"], config)
         #
         # TLS SUPPORT
         #
@@ -66,6 +68,7 @@ class MqttConnector:
             self.client_id,
             # maximum period in seconds allowed between communications with the broker
             self.keep_alive,
+            self.qos,
             # username for broker authentication
             self.username,
             # password for broker authentication
