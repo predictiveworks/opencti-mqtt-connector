@@ -13,6 +13,12 @@ connector:
 
 mqtt:
   broker_url: 'https://console.changeme.com'
-  ssl_verify: true
+  broker_port: 1883
+  client_id: 'ChangeMe'
+  keep_alive: 60
   username: 'ChangeMe'
   password: 'ChangeMe'
+  ca_file: 'ChangeMe'
+  cert_file: 'ChangeMe'
+  key_file: 'ChangeMe'
+  ssl_verify: true

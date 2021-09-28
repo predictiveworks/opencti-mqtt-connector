@@ -39,13 +39,46 @@ class MqttConnector:
         # Initialize Mqtt
         #
         self.broker_url = get_config_variable("MQTT_BROKER_URL", ["mqtt", "broker_url"], config)
+        self.broker_port = get_config_variable("MQTT_BROKER_PORT", ["mqtt", "broker_port"], config)
+
+        self.username = get_config_variable("MQTT_USERNAME", ["mqtt", "username"], config)
+        self.password = get_config_variable("MQTT_PASSWORD", ["mqtt", "password"], config)
+
+        self.client_id = get_config_variable("MQTT_CLIENT_ID", ["mqtt", "client_id"], config)
+        self.keep_alive = get_config_variable("MQTT_KEEP_ALIVE", ["mqtt", "keep_alive"], config)
+        #
+        # TLS SUPPORT
+        #
+        self.ca_file = get_config_variable("MQTT_CA_FILE", ["mqtt", "ca_file"], config)
+        self.cert_file = get_config_variable("MQTT_CERT_FILE", ["mqtt", "cert_file"], config)
+        self.key_file = get_config_variable("MQTT_KEY_FILE", ["mqtt", "key_file"], config)
+        self.ssl_verify = get_config_variable("MQTT_SSL_VERIFY", ["mqtt", "ssl_verify"], config)
 
         #
         # Initialize Mqtt Api
         #
         self.mqtt_api_handler = MqttApiHandler(
             self.helper,
-            self.broker_url
+            # the hostname or IP address of the remote broker
+            self.broker_url,
+            # the network port of the server host to connect to
+            self.broker_port,
+            self.client_id,
+            # maximum period in seconds allowed between communications with the broker
+            self.keep_alive,
+            # username for broker authentication
+            self.username,
+            # password for broker authentication
+            self.password,
+            # a string path to the Certificate Authority certificate files that are to
+            # be treated as trusted by this client
+            self.ca_file,
+            # string path pointing to the PEM encoded client certificate file
+            self.cert_file,
+            # string path pointing to the PEM encoded private key file
+            self.key_file,
+            # if true, verification of the server hostname in the server certificate
+            self.ssl_verify
         )
 
     def _process_message(self, msg):
@@ -79,7 +112,7 @@ class MqttConnector:
         return None
 
     def start(self):
-        self.helper.listen_stream(self._process_message())
+        self.helper.listen_stream(self._process_message)
 
 
 if __name__ == "__main__":

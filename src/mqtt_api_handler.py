@@ -16,20 +16,160 @@
 # @author Stefan Krusche, Dr. Krusche & Partner PartG
 #
 #
-from stix2 import Indicator
+import random
+import ssl
+
+import paho.mqtt.client as mqtt
 
 
 class MqttApiHandler:
     def __init__(
         self,
         helper,
-        broker_url
+        broker_url,
+        broker_port,
+        client_id,
+        keep_alive,
+        username,
+        password,
+        ca_file,
+        cert_file,
+        key_file,
+        ssl_verify
     ):
         # OpenCTI Helper
         self.helper = helper
 
         # Mqtt Parameters
         self.broker_url = broker_url
+        self.broker_port = broker_port
+
+        if len(client_id) == 0:
+            #
+            # Generate client identifier with prefix randomly
+            #
+            self.client_id = f'opencti-mqtt-{random.randint(0, 1000)}'
+        else:
+            self.client_id = client_id
+
+        self.keep_alive = keep_alive
+
+        self.username = username
+        self.password = password
+
+        self.ca_file = ca_file
+        self.cert_file = cert_file
+
+        self.key_file = key_file
+        self.ssl_verify = ssl_verify
+
+
+        # Flag to indicate whether an MQTT connection
+        # was established or not
+        self.connected = False
+
+        #
+        # Build MQTT client
+        #
+        self._build_mqtt_client()
+
+    #
+    # MQTT connection callback to indicate whether
+    # connecting to the configured MQTT broker was
+    # successful or not
+    #
+    def _on_connect(self, client, userdata, message, rc):
+        """
+        Called when the MQTT broker responds to the
+        connection request
+
+        :param client:
+            the client instance for this callback
+        :param userdata:
+            the private user data as set in Client() or userdata_set()
+        :param message:
+            the response message sent by the MQTT broker
+        :param rc:
+            the connection result
+        """
+        # Evaluate result code (rc)
+        #
+        if rc == 0:
+            self.connected = True
+
+        else:
+            self.connected = False
+
+            message = "Cannot connect to MQTT broker. Return code: {}".format(rc)
+            self.helper.log_error(message)
+        return
+
+    def _on_publish(self, client, userdata, mid):
+        """
+        Called when a message that was to be sent using the publish() call
+        has completed transmission to the broker.
+        For messages with QoS levels 1 and 2, this means that the appropriate
+        handshakes have completed. For QoS 0, this simply means that the
+        message has left the client. The mid variable matches the mid
+        variable returned from the corresponding publish() call, to allow
+        outgoing messages to be tracked.
+
+        :param client:
+            the client instance for this callback
+        :param userdata:
+            the private user data as set in Client() or userdata_set()
+        :param mid:
+            matches the mid variable returned from the corresponding
+            publish() call, to allow outgoing messages to be tracked.
+        """
+
+        return
+
+    #
+    # An internal method to publish a certain
+    # MQTT message to the provided topic
+    #
+    def _publish(self, topic, message):
+        if not self.connected:
+            return
+        return
+
+    #
+    # An internal method to construct an MQTT client
+    # and connect to the configured MQTT broker
+    #
+    def _build_mqtt_client(self):
+
+        self.client = mqtt.Client(self.client_id, clean_session=True, protocol=mqtt.MQTTv31)
+        #
+        # Assign connection & publish callback and set
+        # user name and password if configured
+        #
+        self.client.on_connect = self._on_connect
+        self.client.on_publish = self._on_publish
+        #
+        # If username and password are not empty, assign
+        # to MQTT client
+        #
+        if len(self.username) > 0 and len(self.password) > 0:
+            self.client.username_pw_set(self.username, self.password)
+
+        #
+        # The CA file controls the TSL usage
+        #
+        if len(self.ca_file) > 0:
+            if len(self.cert_file) > 0 and len(self.key_file) > 0:
+                self.client.tls_set(self.ca_file,
+                                    certfile=self.cert_file,
+                                    keyfile=self.key_file,
+                                    cert_reqs=ssl.CERT_REQUIRED)
+            else:
+                self.client.tls_set(self.ca_file, cert_reqs=ssl.CERT_REQUIRED)
+
+            self.client.tls_insecure_set(self.ssl_verify)
+
+        self.client.connect(self.broker_url, self.broker_port, self.keep_alive)
+        return
 
     def handle_create(self, data):
         data_type = data["type"]
@@ -105,13 +245,26 @@ class MqttApiHandler:
         # Import indicator
         #
         indicator = self._import_indicator(data)
+        if indicator is not None:
+            #
+            # Publish indicator
+            #
+            message = indicator
+            topic = "opencti/indicator/create"
+            return
         return
 
     def _handle_update_indicator(self, data):
         #
-        # Import indicator as STIX 2 bundle
+        # Import indicator
         #
         indicator = self._import_indicator(data)
+        if indicator is not None:
+            #
+            # Publish indicator
+            #
+            message = indicator
+            topic = "opencti/indicator/update"
         return
 
     def _handle_delete_indicator(self, data):
@@ -138,15 +291,35 @@ class MqttApiHandler:
 
         # Overwrite custom OpenCTI ID
         indicator["id"] = indicator.get("standard_id")
-        return Indicator(**indicator, allow_custom=True)
+        return indicator
 
     #
     # OBSERVABLE SUPPORT
     #
-    def _handle_create_observable(self, entity):
+    def _handle_create_observable(self, data):
+        #
+        # Import observable
+        #
+        observable = self._import_observable(data)
+        if observable is not None:
+            #
+            # Publish indicator
+            #
+            message = observable
+            topic = "opencti/indicator/update"
         return
 
     def _handle_update_observable(self, data):
+        #
+        # Import observable
+        #
+        observable = self._import_observable(data)
+        if observable is not None:
+            #
+            # Publish indicator
+            #
+            message = observable
+            topic = "opencti/indicator/update"
         return
 
     def _handle_delete_observable(self, data):
@@ -158,5 +331,17 @@ class MqttApiHandler:
     # from the OpenCTI knowledge base
     #
     def _import_observable(self, data):
-        return
+        opencti_id: str = data.get("x_opencti_id", None)
+        if not opencti_id:
+            self.helper.log_error(
+                "Cannot process data without 'x_opencti_id' field"
+            )
+            return None
+        observable: dict = self.helper.api.stix_cyber_observable.read(id=opencti_id)
+        if not observable:
+            return None
+
+        # Overwrite custom OpenCTI ID
+        observable["id"] = observable.get("standard_id")
+        return observable
 
